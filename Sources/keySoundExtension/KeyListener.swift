@@ -1,17 +1,26 @@
 import Cocoa
 import CoreGraphics
 
+private func dbg(_ msg: String) {
+    FileHandle.standardError.write(Data("[keySound] \(msg)\n".utf8))
+}
+
 class KeyListener {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isRunning = false
+    private var runLoop: CFRunLoop?
 
     var onStatusChange: ((Bool) -> Void)?
-
     var isActive: Bool { isRunning }
 
     func start() -> Bool {
-        guard !isRunning else { return true }
+        guard !isRunning else {
+            dbg("start: already running")
+            return true
+        }
+
+        dbg("start: creating event tap...")
 
         let eventMask = (
             (1 << CGEventType.keyDown.rawValue) |
@@ -36,57 +45,94 @@ class KeyListener {
         )
 
         guard let tap = tap else {
+            dbg("start: CGEvent.tapCreate returned nil — access likely denied")
             isRunning = false
-            onStatusChange?(false)
+            DispatchQueue.main.async { self.onStatusChange?(false) }
             return false
         }
 
         eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        runLoopSource = source
+        dbg("start: tap and source created, starting background run loop...")
 
         isRunning = true
-        onStatusChange?(true)
+        DispatchQueue.main.async { self.onStatusChange?(true) }
 
-        DispatchQueue.global(qos: .userInteractive).async {
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            guard let self = self else {
+                CFRunLoopSourceInvalidate(source)
+                return
+            }
+            guard self.isRunning else {
+                dbg("start: cancelled before run loop started")
+                return
+            }
+            self.runLoop = CFRunLoopGetCurrent()
+            CFRunLoopAddSource(self.runLoop, source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            dbg("start: run loop running on background thread")
             CFRunLoopRun()
+            dbg("start: run loop exited")
+            self.runLoop = nil
         }
 
         return true
     }
 
     func stop() {
-        guard isRunning else { return }
-
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        guard isRunning else {
+            dbg("stop: not running")
+            return
         }
+        dbg("stop: stopping event tap")
+        isRunning = false
+        DispatchQueue.main.async { self.onStatusChange?(false) }
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
+        if let source = runLoopSource, let rl = runLoop {
+            CFRunLoopRemoveSource(rl, source, .commonModes)
+        }
+        if let rl = runLoop {
+            CFRunLoopStop(rl)
+        }
         eventTap = nil
         runLoopSource = nil
-        isRunning = false
-        onStatusChange?(false)
+        dbg("stop: event tap stopped")
     }
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
         switch type {
         case .keyDown:
-            if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-                let raw = event.getIntegerValueField(.keyboardEventKeycode)
-                let name = KeyCodeMap.name(for: Int(raw))
+            let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            let raw = event.getIntegerValueField(.keyboardEventKeycode)
+            let name = KeyCodeMap.name(for: Int(raw))
+            dbg("keyDown: code=\(Int(raw)) name='\(name)' repeat=\(isRepeat)")
+            if !isRepeat {
                 NotificationCenter.default.post(name: .keyPressed, object: name)
             }
+
         case .leftMouseDown:
+            dbg("leftMouseDown")
             NotificationCenter.default.post(name: .keyPressed, object: "mouse_left")
+
         case .rightMouseDown:
+            dbg("rightMouseDown")
             NotificationCenter.default.post(name: .keyPressed, object: "mouse_right")
-        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+
+        case .tapDisabledByTimeout:
+            dbg("tap disabled by timeout — re-enabling")
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
+
+        case .tapDisabledByUserInput:
+            dbg("tap disabled by user input — re-enabling")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+
         default:
             break
         }

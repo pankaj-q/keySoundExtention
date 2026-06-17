@@ -1,5 +1,9 @@
 import Foundation
 
+private func dbg(_ msg: String) {
+    FileHandle.standardError.write(Data("[keySound] \(msg)\n".utf8))
+}
+
 class ThemeManager {
     let themesURL: URL
 
@@ -8,18 +12,29 @@ class ThemeManager {
             at: themesURL,
             includingPropertiesForKeys: nil
         ) else {
+            dbg("availableThemes: can't read \(themesURL.path)")
             return []
         }
-        return contents
-            .filter { $0.hasDirectoryPath }
-            .map { $0.lastPathComponent }
-            .sorted()
+        let dirs = contents.filter { $0.hasDirectoryPath }
+        dbg("availableThemes: \(dirs.map { $0.lastPathComponent })")
+        return dirs.map { $0.lastPathComponent }.sorted()
     }
 
     init() {
-        if let found = Self.findThemesDirectory() {
-            themesURL = found
+        let bundleURL = Bundle.module.bundleURL
+        let candidate = bundleURL.appendingPathComponent("Themes")
+        dbg("ThemeManager init")
+        dbg("Bundle.module.bundleURL: \(bundleURL.path)")
+        dbg("Checking Themes at: \(candidate.path)")
+
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            themesURL = candidate
+            dbg("Found Themes directory at: \(candidate.path)")
+            if let contents = try? FileManager.default.contentsOfDirectory(atPath: candidate.path) {
+                dbg("Themes contents: \(contents)")
+            }
         } else {
+            dbg("Themes NOT found at \(candidate.path), trying fallback...")
             let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first!
@@ -28,21 +43,28 @@ class ThemeManager {
                 at: dir, withIntermediateDirectories: true
             )
             themesURL = dir
+            dbg("Fallback Themes at: \(dir.path)")
         }
     }
 
     func soundFiles(for theme: String) -> [String: URL] {
         let themeDir = themesURL.appendingPathComponent(theme)
+        dbg("soundFiles for '\(theme)' at: \(themeDir.path)")
+
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: themeDir, includingPropertiesForKeys: nil
         ) else {
+            dbg("  directory not found or unreadable")
             return [:]
         }
+
         var result: [String: URL] = [:]
         for file in contents where file.pathExtension == "wav" {
             let name = file.deletingPathExtension().lastPathComponent.lowercased()
             result[name] = file
+            dbg("  found: \(name) → \(file.lastPathComponent)")
         }
+        dbg("  total wav files: \(result.count)")
         return result
     }
 
@@ -52,25 +74,7 @@ class ThemeManager {
             try? FileManager.default.createDirectory(
                 at: classicDir, withIntermediateDirectories: true
             )
+            dbg("Created Classic theme directory")
         }
-    }
-
-    private static func findThemesDirectory() -> URL? {
-        let execURL = URL(fileURLWithPath: CommandLine.arguments[0])
-        let execDir = execURL.deletingLastPathComponent()
-
-        let candidates = [
-            execDir.appendingPathComponent("Themes"),
-            execDir.appendingPathComponent("Resources/Themes"),
-            execDir.deletingLastPathComponent().appendingPathComponent("Resources/Themes"),
-            Bundle.main.resourceURL?.appendingPathComponent("Themes"),
-        ]
-
-        for url in candidates {
-            if let url = url, FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        return nil
     }
 }

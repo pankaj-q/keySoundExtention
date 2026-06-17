@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "keySoundExtension",
-            resources: [.process("Resources")]
+            resources: [
+                .copy("Themes"),
+                .copy("Info.plist")
+            ]
         )
     ]
 )
