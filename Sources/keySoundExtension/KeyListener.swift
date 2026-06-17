@@ -9,7 +9,6 @@ class KeyListener {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isRunning = false
-    private var runLoop: CFRunLoop?
 
     var onStatusChange: ((Bool) -> Void)?
     var isActive: Bool { isRunning }
@@ -24,6 +23,7 @@ class KeyListener {
 
         let eventMask = (
             (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue) |
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.rightMouseDown.rawValue)
         )
@@ -54,28 +54,14 @@ class KeyListener {
         eventTap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
-        dbg("start: tap and source created, starting background run loop...")
+        dbg("start: tap and source created")
+
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
 
         isRunning = true
         DispatchQueue.main.async { self.onStatusChange?(true) }
-
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            guard let self = self else {
-                CFRunLoopSourceInvalidate(source)
-                return
-            }
-            guard self.isRunning else {
-                dbg("start: cancelled before run loop started")
-                return
-            }
-            self.runLoop = CFRunLoopGetCurrent()
-            CFRunLoopAddSource(self.runLoop, source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-            dbg("start: run loop running on background thread")
-            CFRunLoopRun()
-            dbg("start: run loop exited")
-            self.runLoop = nil
-        }
+        dbg("start: event tap active on main run loop")
 
         return true
     }
@@ -91,11 +77,8 @@ class KeyListener {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
-        if let source = runLoopSource, let rl = runLoop {
-            CFRunLoopRemoveSource(rl, source, .commonModes)
-        }
-        if let rl = runLoop {
-            CFRunLoopStop(rl)
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
         eventTap = nil
         runLoopSource = nil
@@ -110,6 +93,24 @@ class KeyListener {
             let name = KeyCodeMap.name(for: Int(raw))
             dbg("keyDown: code=\(Int(raw)) name='\(name)' repeat=\(isRepeat)")
             if !isRepeat {
+                NotificationCenter.default.post(name: .keyPressed, object: name)
+            }
+
+        case .flagsChanged:
+            let raw = event.getIntegerValueField(.keyboardEventKeycode)
+            let name = KeyCodeMap.name(for: Int(raw))
+            let flags = event.flags
+            let isPressed: Bool
+            switch Int(raw) {
+            case 55: isPressed = flags.contains(.maskCommand)
+            case 56, 60: isPressed = flags.contains(.maskShift)
+            case 57: isPressed = true
+            case 58, 61: isPressed = flags.contains(.maskAlternate)
+            case 59, 62: isPressed = flags.contains(.maskControl)
+            default: isPressed = false
+            }
+            dbg("flagsChanged: code=\(Int(raw)) name='\(name)' isPressed=\(isPressed)")
+            if isPressed {
                 NotificationCenter.default.post(name: .keyPressed, object: name)
             }
 

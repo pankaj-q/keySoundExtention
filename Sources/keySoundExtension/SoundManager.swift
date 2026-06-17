@@ -5,16 +5,21 @@ private func dbg(_ msg: String) {
     FileHandle.standardError.write(Data("[keySound] \(msg)\n".utf8))
 }
 
-class SoundManager {
+class SoundManager: NSObject, AVAudioPlayerDelegate {
     private var soundCache: [String: Data] = [:]
     private(set) var currentTheme: String = "Classic"
     private weak var themeManager: ThemeManager?
     private var isMuted = false
+    private var activePlayers: [AVAudioPlayer] = []
+    private let keyAliases: [String: String] = [
+        "delete": "return"
+    ]
 
     var themeName: String { currentTheme }
 
     init(themeManager: ThemeManager) {
         self.themeManager = themeManager
+        super.init()
         themeManager.ensureDefaultTheme()
         loadTheme("Classic")
 
@@ -58,7 +63,7 @@ class SoundManager {
         dbg("keyPress received: '\(keyName)', muted=\(isMuted)")
 
         guard !isMuted else { return }
-        let lowerKey = keyName.lowercased()
+        let lowerKey = keyAliases[keyName.lowercased()] ?? keyName.lowercased()
         let data = soundCache[lowerKey] ?? soundCache["default"]
         guard let soundData = data else {
             dbg("  no sound data for '\(lowerKey)' or default")
@@ -67,17 +72,24 @@ class SoundManager {
 
         do {
             let player = try AVAudioPlayer(data: soundData)
+            player.delegate = self
             player.volume = 1.0
             player.prepareToPlay()
+            activePlayers.append(player)
             if player.play() {
                 dbg("  playing sound for '\(lowerKey)'")
             } else {
                 dbg("  play() returned false for '\(lowerKey)'")
+                activePlayers.removeAll { $0 === player }
             }
         } catch {
             dbg("  AVAudioPlayer error: \(error.localizedDescription)")
             NSSound.beep()
         }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        activePlayers.removeAll { $0 === player }
     }
 
     deinit {

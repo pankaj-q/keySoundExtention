@@ -60,7 +60,8 @@ class ThemeManager {
 
         var result: [String: URL] = [:]
         for file in contents where file.pathExtension == "wav" {
-            let name = file.deletingPathExtension().lastPathComponent.lowercased()
+            var name = file.deletingPathExtension().lastPathComponent.lowercased()
+            name = name.replacingOccurrences(of: "^key_", with: "", options: .regularExpression)
             result[name] = file
             dbg("  found: \(name) → \(file.lastPathComponent)")
         }
