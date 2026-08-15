@@ -50,6 +50,11 @@ class AppState {
             }
         }
 
+        if accessibilityGranted {
+            dbg("AppState: accessibility granted at launch, starting immediately")
+            _ = keyListener.start()
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.autoStart()
         }
