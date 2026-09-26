@@ -6,7 +6,7 @@ private func dbg(_ msg: String) {
 }
 
 class SoundManager: NSObject, AVAudioPlayerDelegate {
-    private var soundCache: [String: Data] = [:]
+    private var soundCache: [String: URL] = [:]
     private(set) var currentTheme: String = "Classic"
     private weak var themeManager: ThemeManager?
     private var isMuted = false
@@ -41,12 +41,8 @@ class SoundManager: NSObject, AVAudioPlayerDelegate {
         let files = manager.soundFiles(for: name)
         dbg("loadTheme '\(name)': found \(files.count) files")
         for (key, url) in files {
-            if let data = try? Data(contentsOf: url) {
-                soundCache[key] = data
-                dbg("  loaded \(key) (\(data.count) bytes)")
-            } else {
-                dbg("  FAILED to load \(key) from \(url.path)")
-            }
+            soundCache[key] = url
+            dbg("  cached \(key) → \(url.lastPathComponent)")
         }
         dbg("total sounds cached: \(soundCache.count)")
     }
@@ -64,14 +60,18 @@ class SoundManager: NSObject, AVAudioPlayerDelegate {
 
         guard !isMuted else { return }
         let lowerKey = keyAliases[keyName.lowercased()] ?? keyName.lowercased()
-        let data = soundCache[lowerKey] ?? soundCache["default"]
-        guard let soundData = data else {
-            dbg("  no sound data for '\(lowerKey)' or default")
-            return
+        var soundURL: URL?
+        if let cached = soundCache[lowerKey] {
+            soundURL = cached
+        } else if let def = soundCache["default"] {
+            soundURL = def
+        } else {
+            dbg("  no sound for '\(lowerKey)' and no default sound cached")
         }
+        guard let url = soundURL else { return }
 
         do {
-            let player = try AVAudioPlayer(data: soundData)
+            let player = try AVAudioPlayer(contentsOf: url)
             player.delegate = self
             player.volume = 1.0
             player.prepareToPlay()

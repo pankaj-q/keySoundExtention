@@ -70,6 +70,21 @@ class AppState {
         }
     }
 
+    func requestPermission(withTimeout timeout: TimeInterval = 10.0) {
+        PermissionsHelper.requestAccessibility()
+        let deadline = DispatchTime.now() + timeout
+        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+            guard let self = self else { return }
+            self.accessibilityGranted = PermissionsHelper.isAccessibilityGranted
+            if self.accessibilityGranted {
+                dbg("requestPermission: accessibility granted after timeout")
+                _ = self.keyListener.start()
+            } else {
+                dbg("requestPermission: accessibility still not granted after timeout")
+            }
+        }
+    }
+
     func requestPermission() {
         PermissionsHelper.requestAccessibility()
         // Check every 1 second for up to 10 seconds for permission grant
@@ -92,9 +107,12 @@ class AppState {
         } else {
             accessibilityGranted = PermissionsHelper.isAccessibilityGranted
             if accessibilityGranted {
-                _ = keyListener.start()
+                let started = keyListener.start()
+                if !started {
+                    dbg("toggleListening: failed to start key listener")
+                }
             } else {
-                requestPermission()
+                requestPermission(withTimeout: 10.0)
             }
         }
     }

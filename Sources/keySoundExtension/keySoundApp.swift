@@ -47,6 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] t in
             guard let self = self else { return }
             let granted = PermissionsHelper.isAccessibilityGranted
+            writeStatus("tick: granted=\(granted) listening=\(self.state.isListening) pid=\(ProcessInfo.processInfo.processIdentifier)")
             if granted != self.state.accessibilityGranted {
                 self.state.accessibilityGranted = granted
                 self.updateMenu()
@@ -57,7 +58,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.state.toggleListening()
                 }
             }
-            writeStatus("tick: granted=\(granted) listening=\(self.state.isListening) pid=\(ProcessInfo.processInfo.processIdentifier)")
             if !granted && !self.state.isListening && !promptShown {
                 promptShown = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
